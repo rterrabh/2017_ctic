@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Cenários</title>
+<link rel="stylesheet" href="styles/default.css">
+<link href="bootstrap/bootstrap.min.css" rel="stylesheet">
+<script src="highlight.pack.js"></script>
+<script>
+	hljs.initHighlightingOnLoad();
+</script>
+<style>
+.codeRuby {
+	
+}
+
+pre {
+	border: 0;
+	background-color: transparent;
+}
+
+.containerConfig {
+	text-align: justify;
+	padding-left: 200px;
+	padding-right: 200px;
+}
+</style>
+</head>
+<body>
+	<div class="container containerConfig">
+		<h1>Descrição dos cenários das instruções dinâmicas</h1>
+		<h2>Conteúdo:</h2>
+		<ul>
+			<li><a href="#const_get">const_get</a></li>
+			<li><a href="#const_set">const_set</a></li>
+			<li><a href="#define_method">define_method</a></li>
+			<li><a href="#eval">eval</a></li>
+			<li><a href="#instance_eval">instance_eval</a></li>
+			<li><a href="#instance_exec">instance_exec</a></li>
+			<li><a href="#send">send</a></li>
+		</ul>
+
+		<h2 id="const_get" class="page-header">Cenários para const_get</h2>
+		<p>De 81 instruções, foi possível identificar os seguintes
+			cenários: (i) obter uma constante a partir de valores estáticos
+			8,64%; (ii) obter uma constante a partir de valores dinâmicos 51,85%;
+			e (iii) obter constantes a partir de uma lista de valores estáticos
+			39,51%.</p>
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (ext/win32/lib/Win32API.rb, Ruby)
+def initialize(...)
+  ...
+  Fiddle::Importer.const_get(:CALL_TYPE_TO_ABI)[calltype]
+  ...
+end
+
+#depois
+def initialize(...)
+  ...
+  Fiddle::Importer::CALL_TYPE_TO_ABI[calltype]
+  ...
+end
+		</code>
+	</pre>
+		</div>
+		<p>
+			<b>Cenário CG-1 (valores estáticos):</b> Esse é o cenário mais
+			simples e envolve 7 instruções. A Listagem acima ilustra um trecho de
+			código do projeto Ruby que dinamicamente obtém o valor da constante
+			CALL\_TYPE\_TO\_ABI usando const\_get (linha 4). Nessa mesma
+			listagem, também é ilustrado a conversão para código estático que
+			apresenta o mesmo comportamento (linha 11). Note que a conversão é
+			muito simples sendo necessário apenas obter a constante normalmente.
+			Devido a isso, todos os const_get classificados nesse cenário foram
+			categorizados como trivial. Além disso, a conversão para códigos
+			estáticos nesse cenário não inclui nenhuma linha adicional.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (app/mailers/notifier.rb, Diaspora)
+def send_notification(type, *args)
+  ...
+  @notification 
+    = NotificationMailers.const_get(type.to_s.camelize)
+.new(*args)
+  ...
+end
+
+#depois
+def send_notification(type, *args)
+  ...
+  @notification = 
+    case type
+      when :reshared
+        NotificationMailers::Reshared.new(*args)
+      when :mentioned
+        NotificationMailers::Mentioned.new(*args)
+      when :confirm_email
+        NotificationMailers::ConfirmEmail.new(*args)
+      #outros cinco casos
+    end
+  ...
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b> Cenário CG-2 (valores dinâmicos):</b> Esse cenário envolve 41
+			instruções em que cinco foram classificadas com complexidade média e
+			36 como alta. O alto número de instruções classificadas com
+			complexidade alta é devido a necessidade de conhecer cada possível
+			valor de uma determinada variável, o que não é uma tarefa trivial. A
+			Listagem acima ilustra uma parte do código do projeto Diaspora que
+			dinamicamente obtém o valor de uma constante da classe
+			NotificationMailers (linha 5). Foi possível verificar que a variável
+			type pode assumir os valores :reshared, :mentioned, :confirm_email e
+			outros cinco valores. Portanto, a conversão para códigos estáticos
+			requer que o desenvolvedor crie uma sequência de if/else ou um switch
+			para cobrir todos os casos como demonstrado nas linhas 14-21 da mesma
+			listagem. Devido a necessidade de adicionar novas instruções, esse
+			caso foi classificado com complexidade média. Além disso, a conversão
+			para código estático adicionou 17 novas linhas.
+		</p>
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (lib/brew.rb, Homebrew)
+%w[CACHE CELLAR LIBRARY_PATH 
+  PREFIX REPOSITORY].each do |e|
+  ENV["HOMEBREW_#{e}"] = 
+    Object.const_get("HOMEBREW_#{e}").to_s
+end
+
+#depois
+ENV["HOMEBREW_CACHE"] = Object::CACHE.to_s
+ENV["HOMEBREW_CELLAR"] = Object::CELLAR.to_s
+ENV["HOMEBREW_LIBRARY_PATH"] = Object::LIBRARY_PATH.to_s
+ENV["HOMEBREW_PREFIX"] = Object::PREFIX.to_s
+ENV["HOMEBREW_REPOSITORY"] = Object::REPOSITORY.to_s
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário CG-3 (lista):</b> Esse cenário ocorre quando o
+			desenvolvedor precisa obter diversas constantes e preferem utilizar
+			as instruções dinâmicas para um desenvolvimento mais rápido. De 32
+			instruções dinâmicas encontradas nesse cenário, oito foram
+			classificadas com complexidade média e 24 como alta. A Listagem acima
+			ilustra uma parte do código do projeto Homebrew que obtém constantes
+			por meio de um laço feito utilizando a lista ENV (linhas 2-5). A
+			conversão para códigos estáticos requer que o desenvolvedor
+			inspecione cada valor da lista e, então, manualmente obtenha as
+			constantes. Na mesma listagem, as linhas 9-13 ilustram a conversão.
+			Esse caso foi classificado com complexidade média devido ao fato de
+			que novas instruções foram adicionadas.
+		</p>
+
+		<p>
+			<b> Análise: </b> const_get está sendo mais utilizado para fazer com
+			que os métodos obtenham constantes de um modo mais genérico, uma vez
+			que mais de 50\% do uso de tal função está relacionada ao cenário
+			CG-2 (variáveis dinâmicas). O cenário CG-1 (valores estáticos), que
+			representa o mau uso da função, é responsável por 8,64\% do uso de
+			const_get.
+		</p>
+
+
+		<h2 id="const_set" class="page-header">Cenários para const_set</h2>
+		<p>De 78 instruções encontradas, foi possível identificar três
+			cenários: (i) criação de constantes a partir de valores estáticos
+			(60,26\%); (ii) criação de constantes a partir de valores dinâmicos
+			(28,20\%); e (iii) criação de constantes a partir de uma lista de
+			valores estáticos (11,54\%).</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (lib/optparse.rb, Ruby)
+module Acceptables
+  const_set(:DecimalInteger, OptionParser::DecimalInteger)
+  const_set(:OctalInteger, OptionParser::OctalInteger)
+  const_set(:DecimalNumeric, OptionParser::DecimalNumeric)
+end
+
+#depois
+module Acceptables
+  DecimalInteger = OptionParser::DecimalInteger
+  OctalInteger = OptionParser::OctalInteger
+  DecimalNumeric = OptionParser::DecimalNumeric
+end
+		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b>Cenário CS-1 (valores estáticos):</b> Esse é o cenário mais
+			simples do uso da função. A Listagem acima ilustra a parte do código
+			do projeto Ruby que cria três constantes a partir de valores
+			estáticos (linhas 3-5). Nessa mesma listagem, as linhas 10-12
+			ilustram a conversão para o código estático que apresenta o mesmo
+			comportamento. Note que a conversão é simples e apenas foi necessário
+			criar a constante sem utilizar a instrução dinâmica. Devido a isso,
+			todo const_set desse cenário foi classificado como trivial.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (lib/active_admin/namespace.rb, Active Admin)
+def register_module
+  unless Object.const_defined? module_name
+    Object.const_set module_name, Module.new
+  end
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário CS-2 (valores dinâmicos):</b> Esse cenário possui 22
+			instruções em que três foram classificadas com complexidade média e
+			19 como alta. O alto número de instruções classificadas com
+			complexidade alta é devido a necessidade de conhecer todo os
+			possíveis valores de uma determinada variável, o que não é uma tarefa
+			trivial. A Listagem acima ilustra um trecho do código do projeto
+			Active Admin que cria uma constante dentro da classe Object (linha
+			4). Contudo, a constante que irá ser criada depende do valor do
+			retorno do método module_name. Portanto, a conversão para código
+			estático requer que o desenvolvedor analise todos os possíveis
+			retornos da função module_name. A tarefa de determinar todos os
+			possíveis retornos de uma função não é sempre trivial e pode requerer
+			análises profundas. Na análise deste estudo, não foi possível
+			identificar tais valores e, portanto, o caso ilustrado foi
+			classificado como complexidade alta.
+		</p>
+
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+		#antes (ext/tk/lib/tk/event.rb, Ruby)
+module TypeNum
+end
+...
+type_data.each{|id, c_name, ...|
+  TypeNum.const_set(c_name, id)
+  ...
+}
+
+#depois
+module TypeNum
+  KeyPress = 2
+  KeyRelease = 3
+  #outras 36 declaracoes
+end
+type_data.each{|id, c_name, ...|
+  ...
+}
+		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b>Cenário CS-3 (lista):</b> Esse cenário ocorre quando os
+			desenvolvedores precisam criar diversas constantes e preferem
+			realizar essa tarefa de um jeito mais rápido com as instruções
+			dinâmicas. Mesmo com esse benefício, esse cenário cobre apenas 11,54%
+			do uso da função const_set, o que significa que essa estratégia não é
+			muito utilizado. A partir de nove instruções encontradas nesse
+			cenário, duas foram classificadas com complexidade trivial e sete
+			como média, o que indica que as conversões para código estático nesse
+			cenário são relativamente fáceis. A Listagem acima ilustra um trecho
+			de código do projeto Ruby que cria 38 constantes (linhas5-8) dentro
+			do módulo TypeNum. Para a criação dessas constantes, foi utilizado um
+			laço que percorre toda a lista que está na variável type_data.
+			Portanto, a conversão para códigos estáticos requer que o
+			desenvolvedor inspecione todos os possíveis valores da lista e
+			manualmente crie todas as constantes. As linhas 12-14 ilustram uma
+			parte da conversão (já que a variável type_data possui 38 valores)
+			para códigos estáticos. Devido a necessidade de incluir novas
+			instruções na conversão, o caso ilustrado foi classificado com
+			complexidade média. Além disso, para a conversão foi necessário a
+			adição de 37 linhas.
+		</p>
+
+
+		<p>
+			<b>Análise:</b> A função const_set é mais utilizada para criar
+			constantes a partir de valores estáticos. Essa descoberta indica que
+			os desenvolvedores utilizam const_set de forma desnecessária. Ao
+			invés de utilizarem tal função, basta declarar a constante
+			normalmente.
+		</p>
+		<h2 id="define_method" class="page-header">Cenários para
+			define_method</h2>
+
+		<p>A partir de 216 instruções, foi possível identificar dois
+			possíveis cenários: (i)criação de métodos a partir de uma lista com
+			valores estáticos (38,43%) e (ii) criação de métodos ao longo da
+			execução do programa (61,57%), e.g., quando desenvolvedores invocam
+			métodos inexistentes.</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes 
+#(app/models/topic_status_update.rb, Discourse)
+%w(pinned_globally pinned autocoled closed).each 
+do |status|
+  define_method("#{status}?") {name == status}
+end
+
+#depois
+def pinned_globally?
+    "pinned_globally" == name
+end
+def pinned?
+    "pinned" == name
+end
+def autoclosed?
+    "autoclosed" == name
+end
+def closed?
+    "closed" == name
+end
+def pinned_globally?
+    "pinned_globally" == name
+end		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b>Cenário DM-1 (lista):</b> Esse cenário é similar aos cenários CG-3
+			e CS-3, isto é, ocorre quando desenvolvedores precisam criar diversos
+			métodos similares e preferem realizar tal tarefa de uma forma mais
+			rápida. Das de 83 instruções, 77 foram classificadas com complexidade
+			média e 6 como alta. A Listagem acima ilustra um trecho de código do
+			projeto Discourse que cria diversos métodos com sintaxe semelhante
+			utilizando uma lista de valores estáticos (linhas3-6). Novamente, a
+			conversão para código estático necessita que o desenvolvedor
+			inspecione cada valor da lista e crie manualmente os métodos, como
+			ilustrado nas linhas 9-23. Devido a necessidade de adicionar novas
+			instruções, esse caso foi classificado como média. Além disso, foi
+			necessário adicionar 12 linhas de código para realizar a conversão.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/plugin/instance.rb, Discourse)
+def add_to_class(klass, attr, &block)
+  klass = klass.to_s.classify.constantize
+  hidden_method_name = :"#{attr}_without_enable_check"
+  klass.send(:define_method, hidden_method_name, &block)
+  plugin = self
+  klass.send(:define_method, attr) do |*args|
+    send(hidden_method_name, *args) if plugin.enabled?
+  end
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário DM-2 (eventos):</b> Esse cenário possui 133 instruções em
+			que 62 foram classificadas com complexidade média e 71 como alta. O
+			alto número de instruções classificadas com complexidade alta é
+			devido a necessidade de inspecionar cada valor de uma determinada
+			variável. Por exemplo, considere o trecho de código do projeto
+			Discourse ilustrado na Listagem acima. A conversão para código
+			estático requer que o desenvolvedor analise todos os possíveis
+			valores das variáveis klass, attr e block. Na análise deste estudo,
+			não foi possível identificar com precisão todos os possíveis valores
+			e, portanto, não foi possível realizar a conversão. Devido a isso, o
+			caso ilustrado foi classificado como complexidade alta.
+		</p>
+
+
+
+
+		<p>
+			<b>Análise:</b> define_method é muito utilizado para criação de
+			métodos durante a execução do programa (invocação de métodos,
+			invocação de método inexistente, etc.). Por outro lado, a criação de
+			diversos métodos com sintaxe semelhante possui, na maioria dos casos,
+			uma conversão relativamente fácil para códigos estáticos.
+		<p />
+		<h2 id="eval" class="page-header">Cenários para eval</h2>
+		<p>Das 132 instruções, foi possível identificar seis cenários: (i)
+			definição de método (12,88%); (ii) executar \textit{strings} a partir
+			de variáveis (53,03%); (iii) acessar métodos e variáveis privadas
+			(8,33\%); (iv) acessar métodos e variáveis em um dado escopo
+			(15,91%); (v) definir classes (3,79%); e (vi) definir variáveis
+			(6,06\%).</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (lib/gitlab/seeder.rb, GitLab)
+def self.mute_mailer
+  code = <<-eos
+    def Notify.delay
+      self
+    end
+      eos
+  eval(code)
+end
+
+#depois
+def self.mute_mailer
+  def Notify.delay
+    self
+  end
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-1 (definição de método):</b> De 17 instruções, uma foi
+			classificada como trivial, duas como em média e 14 como alta. A
+			Listagem acima ilustra um trecho de código do projeto GitLab que
+			define um novo método (Notify.delay) utilizando eval (linhas 3-8). A
+			conversão desse caso para código estático requer uma análise sobre a
+			variável code, que é declarada no mesmo que escopo em que o eval é
+			executado, o que é classificado como trivial} devido ao fato de que o
+			desenvolvedor pode simplesmente criar o método sem a utilização do
+			eval, como ilustrado nas linhas 13-15. Essa conversão reduziu três
+			linhas de código.
+
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/irb/workspace.rb, Ruby)
+def evaluate(context, statements, 
+  file = __FILE__, line = __LINE__)
+  eval(statements, @binding, file, line)
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-2 (valores dinâmicos):</b> Todas as 70 instruções
+			encontradas nesse cenário foram classificadas com complexidade {\em
+			alta} devido a necessidade de analisar todos os possíveis valores de
+			uma determinada variável. A Listagem acima ilustra um trecho de
+			código que executa o eval sobre uma variável. Na análise deste
+			trabalho, não foi possível determinar todos os possíveis valores das
+			variáveis que o eval recebe como parâmetro e, portanto, esse caso foi
+			classificado com complexidade alta.
+
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/irb/completion.rb, Ruby)
+gv = eval("global_variables", bind).collect{|m| m.to_s}
+lv = eval("local_variables", bind).collect{|m| m.to_s}
+ruby/lib/irb/completion.rb
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-3 (métodos privados):</b> Todas as 11 instruções
+			encontradas nesse cenário foram classificadas com complexidade alta.
+			A Listagem acima ilustra um trecho de código do projeto Ruby que
+			acessa os métodos privados global_variables e local_variables através
+			do eval. Nesse caso, a conversão para códigos estáticos consiste em
+			determinar todos os possíveis valores da variável bind, uma vez que é
+			ela que determina em qual escopo o eval será executado. Na análise
+			deste estudo, não foi possível determinar os valores para tal
+			variável e, portanto, não foi possível realizar a conversão.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/irb/completion.rb, Ruby)
+receiver = $1
+...
+  candidates = eval("#{receiver}.constants.collect
+                    {|m| m.to_s}", bind)
+  candidates |= eval("#{receiver}.methods.collect
+                     {|m| m.to_s}", bind)
+...
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-4 (escopo):</b> Todas as 21 instruções nesse cenário
+			foram classificadas com complexidade alta. A Listagem acima ilustra
+			um trecho de código do projeto Ruby que, utilizando o eval, acessa
+			métodos em um determinado escopo (que é determinado pela variável
+			bind). Note que a expressão sobre o eval também depende da variável
+			receiver. Portanto, a conversão para código estático requer que o
+			desenvolvedor inspecione todos os possíveis valores e não somente da
+			variável bind, mas também da variável receiver. Na análise deste
+			trabalho, não foi possível determinar tais valores e, portanto, não
+			foi possível realizar a conversão.
+
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (lib/irb/ruby-token.rb, Ruby)
+def RubyToken.def_token(token_n, super_token = Token, ...)
+  ...
+  token_c =
+      eval("class #{token_n} < #{super_token}; 
+           end; #{token_n}")
+  ...
+end
+
+#depois
+def RubyToken.def_token(token_n, super_token = Token, ...)
+  ...
+  if token_n == :TkCLASS and super_token == TkId
+    class TkCLASS < TkId; end;
+    token_c = TkClass
+  elsif token_n == :TkMODULE and super_token == TkId
+    class TkMODULE < TkId; end;
+    token_c = TkMODULE
+    ... #outros 118 elsif
+  end
+...
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-5 (definição de classe):</b> De 5 instruções
+			encontradas nesse cenário, duas foram classificadas com complexidade
+			média e três como alta. A Listagem acima ilustra um trecho de código
+			do projeto Ruby que define novas classes utilizando eval (linhas4-6).
+			Note que a expressão sobre o eval depende das variáveis token_n e
+			super_token. Novamente, a conversão para código estático consiste em
+			analisar todos os possíveis valores das variáveis mencionadas. Na
+			análise deste estudo, foi possível identificar que o método def_token
+			recebe como parâmetro uma lista chamada TokenDefinitions, que possui
+			120 elementos. Portanto, foram adicionadas instruções if/else para
+			cobrir todas as possíveis combinações (uma parte da conversão é
+			ilustrada nas linhas13-20). Devido a necessidade de adicionar novas
+			instruções, o caso ilustrado foi classificado com complexidade média.
+			Além disso, foram necessária 366 linhas a mais para realizar a
+			conversão.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/js_locale_helper.rb, Discourse)
+def self.compile_message_format(locale, format)
+  ctx = V8::Context.new
+  ...
+  ctx.eval("mf = new MessageFormat('#{locale}');")
+  ctx.eval("mf.precompile(mf.parse(#{format.inspect}))")
+  ...
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário EV-6 (definição de variável)</b>: De oito instruções
+			encontradas nesse cenário, uma foi classificada como média e seis
+			como alta. A Listagem acima ilustra um trecho de código do projeto
+			Discourse que define novas variáveis utilizando o eval (linhas 5-6).
+			Nesse exemplo, o eval é utilizado no contexto da classe V8::Context e
+			a expressão depende das variáveis locale e format. Como a análise
+			deste trabalho não identificou com precisão todos os possíveis
+			valores dessas variáveis, não foi possível realizar a conversão.
+		</p>
+
+
+		<p>
+			<b>Análise:</b> eval é comumente utilizado para fornecer mais
+			generalidade, devido ao fato de que mais de 50% do uso está
+			relacionado ao cenário EV-2. Tal generalidade faz com que a conversão
+			para código estático seja mais complexa (como observado nos
+			resultados da maioria dos cenários em que praticamente todos possuem
+			uma alta porcentagem de classificações com complexidade alta. Além
+			disso, eval também é utilizado para deixar o desenvolvimento do
+			software mais flexível, permitindo criação de classes, métodos e
+			variáveis (22,73%) em tempo de execução. Finalmente, foi demonstrado
+			que os desenvolvedores também utilizam eval para acessar métodos
+			privados (8,33%), o que pode indicar em más decisões arquiteturais.
+		</p>
+
+		<h2 id="instance_eval" class="page-header">Cenários para
+			instance_eval</h2>
+		<p>De 258 instruções, foi possível identificar três cenários: (i)
+			acessar métodos e atributos privados (53,49%); (ii) criar métodos no
+			contexto de um objeto (17,44%); e (iii) executar blocos em um
+			contexto de um objeto (29,07%).</p>
+
+	<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes
+#(actionpack/lib/action_dispatch/http/mime_type.rb, Rails)
+def unregister(symbol)
+  Mime.instance_eval { remove_const(symbol) }
+end
+
+#depois
+module Mime
+  ...
+  def public_remove_const(symbol)
+    remove_const(symbol)
+  end
+  ...
+end
+
+def unregister(symbol)
+  Mime.public_remove_const(symbol)
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário IEV-1 (acesso privado): </b> Foram encontradas nesse
+			cenário 138 instruções em que 33 foram classificadas com complexidade
+			baixa, 64 como média e 41 como alta. A análise da função
+			instance_eval requer que o desenvolvedor inspecione todos os
+			possíveis tipos (classes) que uma variável possa ser, uma vez que é
+			necessário ter conhecimento sobre qual contexto o bloco será
+			executado. Essa tarefa não é sempre trivial e, portanto, esse cenário
+			obteve resultados com complexidade de nível baixo até alto. A
+			Listagem acima ilustra um trecho de código do projeto Rails que
+			acessa um método privado (remove_const) do módulo Mime (linha 4). A
+			conversão para códigos estáticos requer que uma versão pública de tal
+			método seja feita, uma vez que o método é privado por natureza, como
+			ilustrado nas linhas 10-12. Devido a necessidade de adicionar novas
+			instruções, esse caso foi classificado com complexidade média. Além
+			disso, três linhas de códigos foram adicionadas para realizar a
+			conversão.
+		</p>
+	<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (ext/tk/lib/tkextlib/itk/incr_tk.rb, Ruby)
+(Itk_Component_ID = ['itk:component'.freeze, 
+  TkUtil.untrust('00000')]).instance_eval{
+  @mutex = Mutex.new
+  def mutex; @mutex; end
+  freeze
+}
+
+#depois
+class Array
+  def mutex; @mutex||=Mutex.new; end
+end
+Itk_Component_ID = ['itk:component'.freeze, 
+  TkUtil.untrust('00000')].freeze
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário IEV-2 (definição de método)</b>: De 45 instruções
+			encontradas nesse cenário, 38 foram classificadas com complexidade
+			média e sete como alta. Embora métodos nesse cenário sejam
+			adicionados no contexto de um objeto, uma possível conversão para
+			código estático é adicionar tal método na classe do objeto que invoca
+			a função instance\_eval. Por exemplo, considere o trecho de código do
+			projeto Ruby ilustrado na Listagem acima. O método mutex está sendo
+			criado no contexto do objeto Itk\_Component\_Id do tipo Array (linhas
+			2-7). Portanto, a conversão para código estático requer que o método
+			mutex seja adicionado na classe Array. Realizando tal conversão, o
+			objeto Itk\_Component\_Id poderá chamar o método mutex sem a
+			necessidade do uso da função instance_eval. Tal conversão é ilustrada
+			nas linhas 10-14 e remove uma linha de código. Devido à necessidade
+			de adicionar novas instruções, esse caso foi classificado com
+			complexidade média.
+		</p>
+
+	<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/Homebrew/software_spec.rb, Homebrew)
+def bottle(&block)
+  bottle_specification.instance_eval(&block)
+end
+		</code>
+	</pre>
+		</div>
+		<p>
+			<b>Cenário IEV-3 (execução de bloco):</b> Esse cenário possui 75
+			instruções em que uma foi classificada como média e 74 como alta.
+			Novamente, o alto número de classificações com complexidade alta é
+			devido a necessidade de analisar todos os possíveis valores de uma
+			variável, o que não é uma tarefa trivial. A Listagem acima ilustra um
+			trecho de código do projeto Homebrew que executa um bloco no contexto
+			da variável bottle_specification (linha 3). Como mencionado
+			anteriormente, a conversão para código estático requer que seja
+			analisado os valores do bloco e todas as possíveis classes que a
+			variável bottle_specification possa assumir. Na análise deste estudo,
+			não foi possível determinar tais valores e, portanto, o caso
+			ilustrado foi classificado com complexidade alta.
+		</p>
+
+		<p>
+			<b>Análise:</b> instance\_eval é comumente utilizado para acessar
+			variáveis e métodos privados. Como já mencionado, tal acesso pode
+			indicar más decisões no projeto arquitetural, já que variáveis e
+			métodos privados são acessados fora do contexto da classe em
+			quepertencem.
+		</p>
+		<h2 id="instance_exec" class="page-header">Cenários para
+			instance_exec</h2>
+		<p>De 95 instruções encontradas, foi possível identificar dois
+			cenários: (i) executar blocos que não requerem parâmetros (38,95%) e
+			(ii) executar blocos que requerem parâmetros (61,05%).</p>
+
+	<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/active_admin/csv_builder.rb, Active Admin)
+def exec_columns(view_context = nil)
+  ...
+  instance_exec &@block if @block.present?
+  ...
+end
+		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b>Cenário IEX-1 (bloco sem parâmetros):</b> Esse cenário contém 37
+			instruções em que apenas uma foi classificada como média e 36 como
+			alta. A Listagem acima ilustra um trecho de código do projeto
+			ActiveAdmin que utiliza instance\_exec para executar um bloco o qual
+			está armazenado na variável @block (linha 4). Na análise deste
+			estudo, não foi possível determinar todos os possíveis valores da
+			variável @block e, portanto, esse caso foi classificado com
+			complexidade alta. Além disso, particularmente nesse cenário, é
+			possível converter a função instance_exec para instance\_eval, uma
+			vez que o bloco a ser executado não requer parâmetros.
+		</p>
+
+
+	<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/active_admin/view/pages/show.rb, Active Admin)
+def main_content
+  ...
+  instance_exec resource, &config.block     
+  ...
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário IEX-2 (bloco com parâmetros):</b> Esse cenário possui 58
+			instruções em que todas foram classificadas com complexidade alta. A
+			Listagem acima ilustra um trecho de código do projeto ActiveAdmin que
+			utiliza instance_exec para executar um bloco que está armazenado na
+			variável config.block e seu parâmetro armazenado na variável resource
+			(linha 4). Devido a análise deste estudo não identificar todos os
+			possíveis valores das variáveis mencionadas, não foi possível
+			realizar a conversão para código estático.
+		</p>
+		<p>
+			<b>Análise</b>: Desenvolvedores utilizam instance_exec para fornecer
+			aos métodos mais generalidade. Devido a tal generalidade, a
+			complexidade de conversão para códigos estáticos é alta.
+		</p>
+
+		<h2 id="send" class="page-header">Cenários para send</h2>
+		<p>De 996 instruções, foi possível identificar quatro cenários:
+			(i) chamar métodos públicos com argumentos estáticos (8,84%); (ii)
+			chamar diversos métodos usando uma lista com valores estáticos
+			(18,67%); (iii) chamar métodos com argumentos dinâmicos (49,40%); e
+			(iv) chamar métodos privados (23,09%).</p>
+
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (config/initializers/i18n.rb, Discourse)
+I18n::Backend::Simple.send
+  (:include, I18n:Backend:Pluralization)
+
+#depois
+I18n::Backend::Simple.include
+  (I18n:Backend:Pluralization)
+		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b>Cenário SD-1 (métodos públicos):</b> Esse é o cenário mais simples
+			da função e possui 88 instruções. A Listagem acima ilustra um trecho
+			de código do projeto Discourse que invoca o método include usando o
+			send (linhas 2-3). Nessa mesma listagem, é ilustrado a conversão para
+			código estático (linhas 6-7). Note que a conversão da instrução
+			dinâmica para código estático é muito simples e sendo apenas
+			necessário chamar a função include sem usar o send. Devido a
+			simplicidade, todos os casos desse cenário foram classificados como
+			trivial.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (app/models/user.rb, GitLab)
+def sanitize_attrs
+  %w(name username skype linkedin twitter).each do |attr|
+    value = self.send(attr)
+    self.send("#{attr}=", 
+      Sanitize.clean(value)) if value.present?
+end
+
+#depois
+def sanitize_attrs
+  value = self.name
+  self.name = Sanitize.clean(value) if value.present?
+  value = self.username
+  self.name = Sanitize.clean(value) if value.present?
+  value = self.skype
+  self.name = Sanitize.clean(value) if value.present?
+  value = self.linkedin
+  self.name = Sanitize.clean(value) if value.present?
+  value = self.twitter
+  self.name = Sanitize.clean(value) if value.present?
+end
+		</code>
+	</pre>
+		</div>
+
+
+		<p>
+			<b> Cenário SD-2 (lista):</b> Esse cenário ocorre quando os
+			desenvolvedores precisam chamar diversos métodos e utilizam as
+			instruções dinâmicas para um desenvolvimento mais rápido. Nesse
+			cenário foram encontrados 186 instruções em que uma foi classificada
+			como trivial, duas como baixa, 116 como média e 67 como alta. A
+			Listagem acima ilustra um trecho de código do projeto GitLab que
+			dinamicamente chama os métodos name, username, skype, linkedin e
+			twitter utilizando a função send no laço de uma lista (linhas 3-6).
+			Para esse cenário, a conversão para códigos estáticos requer que o
+			desenvolvedor inspecione todos os possíveis valores da lista e
+			manualmente chame todas as funções, como ilustrado nas linhas 11-20.
+			Devido a necessidade de adicionar novas instruções, o caso ilustrado
+			foi classificado com complexidade média.
+
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#antes (app/models/project_team.rb, GitLab)
+def fetch_members(level = nil)
+  ...
+  if level
+    project_members = project_members.send(level)
+    group_members = group_members.send(level) if group
+  end
+  ...
+end
+
+#depois
+def fetch_members(level = nil)
+  ...
+  case level
+    when :guests
+      project_members = project_members.guests
+      group_members = group_members.guests if group
+    when :reporters
+      project_members = project_members.reporters
+      group_members = group_members.reporters if group
+    #outros casos do atributo level
+  end
+  ...
+end
+		</code>
+	</pre>
+		</div>
+
+		<p>
+			<b>Cenário SD-3 (variáveis dinâmicas):</b> Esse é o cenário mais
+			comum do uso de send. Tal cenário é utilizado para prover mais
+			generalidade aos métodos. De 492 instruções encontradas, nove foram
+			classificadas com complexidade baixa, 141 como média e 342 como alta.
+			O alto número de classificações com complexidade alta é devido a
+			complexidade de descobrir todos os possíveis valores de uma
+			determinada variável. A Listagem acima ilustra um trecho de código do
+			projeto GitLab que dinamicamente invoca um método (linhas 5-6) cujo o
+			nome está armazenado na variável level (que pode assumir diversos
+			valores). Portanto, a conversão para código estático requer que o
+			desenvolvedor inspecione todos os possíveis valores da variável level
+			e, então, crie instruções de if/else ou switch para cobrir todos os
+			possíveis casos. A conversão é ilustrada nas linhas 14-22. Além
+			disso, devido a necessidade de adicionar novas instruções, o caso
+			ilustrado foi classificado com complexidade média.
+		</p>
+
+		<div class="codeRuby">
+			<pre>
+		<code class="ruby">
+#(lib/active_admin/menu.rb, Active Admin)
+def _add(options)
+  item = ActiveAdmin::MenuItem.new(options)
+  item.send :children=, 
+    self[item.id].children if self[item.id]
+  self[item.id] = item
+end
+		</code>
+	</pre>
+		</div>
+		<p>
+			<b>Cenário SD-4 (métodos privados):</b> De 230 instruções encontradas
+			nesse cenário, 136 foram classificadas com complexidade baixa, 43
+			como média e 51 alta. O alto número de classificações com
+			complexidade baixa é devido a grande maioria das instruções nesse
+			caso requerer somente a mudança de visibilidade do método. A Listagem
+			acima ilustra um trecho de código do projeto ActiveAdmin que utiliza
+			o send para chamar um método privado cujo o nome é children= (linha
+			4). Portanto, a conversão para código estático requer unicamente a
+			mudança de visibilidade do método children= para público (essa
+			mudança não foi ilustrada devido a simplicidade) e, então, basta
+			chamar a função sem utilizar o send. Esse caso foi classificado com
+			complexidade baixa, uma vez que não há a necessidade de adicionar
+			novas instruções. <br />
+		</p>
+
+		<p>
+			<b>Análise:</b> Foi possível identificar que 8,84% das instruções
+			send são utilizadas para chamar métodos públicos, o que indica o uso
+			desnecessário da função. Também foi identificado que 23,09% do uso de
+			send é para chamar métodos privados, o que pode indicar más decisões
+			no projeto arquitetural do software.
+		</p>
+	</div>
+</body>
+</html>
